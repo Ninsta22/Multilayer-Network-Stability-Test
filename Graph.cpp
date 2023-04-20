@@ -3,6 +3,698 @@
 #include <boost/algorithm/string.hpp>
 #include <unordered_map>
 #include <iostream>
+#include <random>
+#include <bits/stdc++.h>
+
+using namespace std;
+
+string Graph::aggNonAggregateShuffleEdge(string networkName, int swapNumber){
+
+	srand(time(0));
+	string fileName = "";
+
+	vector<vector<vector<int> > > nodePairTracker(LayerSize, vector<vector<int>>(NodeSize));
+	unordered_map<string, dynamic_bitset<>> edgeCount;
+
+	//Keep track of swappable non-aggregate edges
+	vector<vector<pair<int, int>>> swappableNonEdges(LayerSize);
+
+	//Keep track of swappable aggregate edges
+	vector<vector<pair<int, int>>> swappableAggEdges(LayerSize);
+
+	string str;
+	ifstream in_stream;
+	in_stream.open(networkName);
+
+	int layerIndex = 0;
+	while(!in_stream.eof()){
+		getline(in_stream, str);
+		if(str.size()>0){
+			if(str[0] == '-') layerIndex++;
+			else{
+				vector<string> tokenizer;
+				boost:split(tokenizer,str,boost::is_any_of("\t"));
+
+				nodePairTracker[layerIndex][stoi(tokenizer[0])].push_back(stoi(tokenizer[1]));
+
+				if(edgeCount.find(str) == edgeCount.end()){
+					edgeCount.insert(make_pair(str, dynamic_bitset<>(LayerSize)));
+				}
+				edgeCount[str][layerIndex] = 1;
+			}
+		}
+	}
+	in_stream.close();
+
+	vector<string> strs;
+	for(auto& p: edgeCount){
+		dynamic_bitset<> tdb = p.second;
+		if (tdb.count() >= k) {
+			string edge = p.first;
+			strs.clear();
+			boost::split(strs,edge,boost::is_any_of("\t"));
+
+			int source = stoi(strs[0]);
+	        int dest = stoi(strs[1]);
+
+			for(int i = 0; i < tdb.size(); i++){
+				if(tdb[i] == 1) swappableAggEdges[i].push_back(make_pair(source, dest));
+			}
+		}else if(tdb.count() > 0 && tdb.count() < k){
+			string edge = p.first;
+			strs.clear();
+			boost::split(strs,edge,boost::is_any_of("\t"));
+
+			int source = stoi(strs[0]);
+			int dest = stoi(strs[1]);
+
+			for(int i = 0; i < tdb.size(); i++){
+				if(tdb[i] == 1) swappableNonEdges[i].push_back(make_pair(source, dest));
+			}
+		}
+	}
+
+	for(int j = 0; j < swapNumber; j++){
+		bool flag = true;
+		int aggIndex; int nonAggIndex;
+		int randomLayer = rand() % LayerSize;
+		while(swappableNonEdges[randomLayer].size() < 2) randomLayer = rand() % LayerSize;
+
+		while(flag){
+			aggIndex = rand() % swappableAggEdges[randomLayer].size();
+			nonAggIndex = rand() % swappableNonEdges[randomLayer].size();
+
+			while(swappableAggEdges[randomLayer][aggIndex].first == swappableNonEdges[randomLayer][nonAggIndex].first ||
+			swappableAggEdges[randomLayer][aggIndex].second == swappableNonEdges[randomLayer][nonAggIndex].second){
+				aggIndex = rand() % swappableAggEdges[randomLayer].size();
+				nonAggIndex = rand() % swappableNonEdges[randomLayer].size();
+			}
+			flag = false;
+			int shortIndex = swappableAggEdges[randomLayer][aggIndex].first;
+			for(int i = 0; i < nodePairTracker[randomLayer][shortIndex].size(); i++){
+				if(nodePairTracker[randomLayer][shortIndex][i] == swappableNonEdges[randomLayer][nonAggIndex].second){
+					flag = true;
+				}
+			}
+			shortIndex = swappableNonEdges[randomLayer][nonAggIndex].first;
+			for(int i = 0; i < nodePairTracker[randomLayer][shortIndex].size(); i++){
+				if(nodePairTracker[randomLayer][shortIndex][i] == swappableAggEdges[randomLayer][aggIndex].second){
+					flag = true;
+				}
+			}
+		}
+
+		int node1 = swappableAggEdges[randomLayer][aggIndex].first;
+		int node2 = swappableAggEdges[randomLayer][aggIndex].second;
+		int node3 = swappableNonEdges[randomLayer][nonAggIndex].first;
+		int node4 = swappableNonEdges[randomLayer][nonAggIndex].second;
+
+		for(int i = 0; i < nodePairTracker[randomLayer][node1].size(); i++){
+			if(nodePairTracker[randomLayer][node1][i] == node2) nodePairTracker[randomLayer][node1][i] = node4;
+		}
+		for(int i = 0; i < nodePairTracker[randomLayer][node3].size(); i++){
+			if(nodePairTracker[randomLayer][node3][i] == node4) nodePairTracker[randomLayer][node3][i] = node2;
+		}
+
+		swappableAggEdges[randomLayer][aggIndex].second = node4;
+		swappableNonEdges[randomLayer][nonAggIndex].second = node2;
+	}
+
+	fileName = to_string(swapNumber)+"swapNetwork.txt";
+	ofstream swappedNetwork;
+	swappedNetwork.open(fileName);
+
+	for(auto& l: nodePairTracker){
+		for(int i = 0; i < l.size(); i++){
+			for(auto& p: l[i]){
+				swappedNetwork << i << "\t" << p << endl;
+			}
+		}
+		swappedNetwork << "-----------" << endl;
+	}
+	swappedNetwork.close();
+
+	//Clear to prevent any leakage
+	edgeCount.clear();
+	nodePairTracker.clear();
+	swappableAggEdges.clear();
+	swappableNonEdges.clear();
+
+	return fileName;
+}
+
+//This method will shuffle the edges corresponding to whether or not it is apart of an important
+//motif
+//TODO Make this return a string, which is the name of the new network
+string Graph::motifShuffle(vector<Motif *> &motifs, string networkName, int swapNumber){
+	srandom(time(0));
+	srand(time(0));
+	string fileName = "";
+
+	vector<vector<vector<int> > > nodePairTracker(LayerSize, vector<vector<int>>(NodeSize));
+	unordered_map<string, dynamic_bitset<>> edgeCount;
+
+	//Keep track of swappable non-aggregate edges
+	vector<vector<pair<int, int>>> swappableEdges(LayerSize);
+
+	string str;
+	ifstream in_stream;
+	in_stream.open(networkName);
+
+	int layerIndex = 0;
+	while(!in_stream.eof()){
+		getline(in_stream, str);
+		if(str.size()>0){
+			if(str[0] == '-') layerIndex++;
+			else{
+				vector<string> tokenizer;
+				boost:split(tokenizer,str,boost::is_any_of("\t"));
+
+				nodePairTracker[layerIndex][stoi(tokenizer[0])].push_back(stoi(tokenizer[1]));
+
+				if(edgeCount.find(str) == edgeCount.end()){
+					edgeCount.insert(make_pair(str, dynamic_bitset<>(LayerSize)));
+				}
+				edgeCount[str][layerIndex] = 1;
+			}
+		}
+	}
+	in_stream.close();
+
+	vector<string> strs;
+	for(auto& p: edgeCount){
+		dynamic_bitset<> tdb = p.second;
+		if(tdb.count() < k && tdb.count() > 0){
+			string edge = p.first;
+			strs.clear();
+			boost::split(strs,edge,boost::is_any_of("\t"));
+
+			int source = stoi(strs[0]);
+			int dest = stoi(strs[1]);
+
+			for(int i = 0; i < tdb.size(); i++){
+				if(tdb[i] == 1) swappableEdges[i].push_back(make_pair(source, dest));
+			}
+		}
+	}
+
+	//vector<pair<int, int>> initialMotifData;
+	unordered_map<int, int> initialMotifData;
+	vector<pair<double, int>> motifSwapList;
+
+
+	for(auto& p: motifs){
+		for(int i = 0; i < p->edges.size(); i++){
+			if(p->edges[i]==1){
+				if(initialMotifData.find(i) == initialMotifData.end()){
+					initialMotifData.insert(make_pair(i, 1));
+				}else{
+					initialMotifData[i] = initialMotifData[i]+1;
+				}
+			}
+		}
+	}
+
+	double calculateImpact = 0.0;
+	for(auto& p: initialMotifData){
+		dynamic_bitset<> tempLayers(LayerSize);
+		for(auto& t: motifs) if(t->edges[p.first] == 1) tempLayers |= t->layers;
+		int numLayersPresent = tempLayers.count();
+		double impactRatio = ((double)p.second/(double)numLayersPresent);
+		motifSwapList.push_back(make_pair(impactRatio, p.first));
+		calculateImpact = calculateImpact + impactRatio;
+	}
+
+	sort(motifSwapList.begin(), motifSwapList.end());
+	int totalImpact = (int)calculateImpact;
+
+	for(int nonUsed = 0; nonUsed < swapNumber; nonUsed++){
+		int motifEdgeID = -1;
+		
+		bool notFound = true;
+		while(notFound){
+			const long max_rand = 1000000L;
+			double randomPos = ((double)totalImpact)* (random() % max_rand) / max_rand;
+			double target = 0.0;
+			for(int x = 0; x < motifSwapList.size(); x++){
+				if(target + motifSwapList[x].first < randomPos){
+					target = target + motifSwapList[x].first;
+				}else{
+					if(edgeLayers[motifSwapList[x].second].count() == 0){
+						break;
+					}else{
+						notFound = false;
+						motifEdgeID = motifSwapList[x].second;
+						break;
+					}
+				}
+			}
+		}
+		
+		int node1 = stoi(edgeset[motifEdgeID].first);
+		int node2 = stoi(edgeset[motifEdgeID].second);
+		
+		
+		int workingLayer = -1;
+		int testingLayerValue = 0;
+		bool flag = true;
+		while(testingLayerValue == 0){
+			workingLayer = rand() % edgeLayers[motifEdgeID].size();
+			testingLayerValue = (edgeLayers[motifEdgeID][workingLayer])*(swappableEdges[workingLayer].size());
+		}
+
+
+		flag = true;
+		int edgeIndex2 = -1;
+		while(flag){
+			edgeIndex2 = rand() % swappableEdges[workingLayer].size();
+
+			//cout << nonUsed << endl;
+			while(swappableEdges[workingLayer][edgeIndex2].first == node1 ||
+			swappableEdges[workingLayer][edgeIndex2].second == node2){
+				edgeIndex2 = rand() % swappableEdges[workingLayer].size();
+			}
+
+			flag = false;
+			for(int i = 0; i < nodePairTracker[workingLayer][node1].size(); i++){
+				if(nodePairTracker[workingLayer][node1][i] == swappableEdges[workingLayer][edgeIndex2].second){
+					flag = true;
+				}
+			}
+			int shortIndex = swappableEdges[workingLayer][edgeIndex2].first;
+			for(int i = 0; i < nodePairTracker[workingLayer][shortIndex].size(); i++){
+				if(nodePairTracker[workingLayer][shortIndex][i] == node2){
+					flag = true;
+					//cout << "Here second: " << node1 << " and " << node2 << endl;
+				}
+			}
+		}
+
+		int node3 = swappableEdges[workingLayer][edgeIndex2].first;
+		int node4 = swappableEdges[workingLayer][edgeIndex2].second;
+
+		for(int i = 0; i < nodePairTracker[workingLayer][node1].size(); i++){
+			if(nodePairTracker[workingLayer][node1][i] == node2) nodePairTracker[workingLayer][node1][i] = node4;
+		}
+		for(int i = 0; i < nodePairTracker[workingLayer][node3].size(); i++){
+			if(nodePairTracker[workingLayer][node3][i] == node4) nodePairTracker[workingLayer][node3][i] = node2;
+		}
+
+		//Make corrections to any data structures that need corrections done
+		swappableEdges[workingLayer][edgeIndex2].second = node2;
+		for(int i = 0; i < edgeLayers[motifEdgeID].size(); i++){
+			if(edgeLayers[motifEdgeID][i] == workingLayer) edgeLayers[motifEdgeID][i] = 0;
+		}
+	}
+
+	fileName = to_string(swapNumber)+"swapNetwork.txt";
+	ofstream swappedNetwork;
+	swappedNetwork.open(fileName);
+
+	for(auto& l: nodePairTracker){
+		for(int i = 0; i < l.size(); i++){
+			for(auto& p: l[i]){
+				swappedNetwork << i << "\t" << p << endl;
+			}
+		}
+		swappedNetwork << "-----------" << endl;
+	}
+	swappedNetwork.close();
+
+	//Clear to prevent any leakage
+	edgeCount.clear();
+	nodePairTracker.clear();
+	swappableEdges.clear();
+	initialMotifData.clear();
+	motifSwapList.clear();
+
+	return fileName;	
+}
+
+string Graph::aggregateShuffleEdge(string networkName, int swapNumber){
+
+	srand(time(0));
+	string fileName = "";
+
+	vector<vector<vector<int> > > nodePairTracker(LayerSize, vector<vector<int>>(NodeSize));
+	unordered_map<string, dynamic_bitset<>> edgeCount;
+
+	//Keep track of swappable non-aggregate edges
+	vector<vector<pair<int, int>>> swappableEdges(LayerSize);
+
+	string str;
+	ifstream in_stream;
+	in_stream.open(networkName);
+
+	int layerIndex = 0;
+	while(!in_stream.eof()){
+		getline(in_stream, str);
+		if(str.size()>0){
+			if(str[0] == '-') layerIndex++;
+			else{
+				vector<string> tokenizer;
+				boost:split(tokenizer,str,boost::is_any_of("\t"));
+
+				nodePairTracker[layerIndex][stoi(tokenizer[0])].push_back(stoi(tokenizer[1]));
+
+				if(edgeCount.find(str) == edgeCount.end()){
+					edgeCount.insert(make_pair(str, dynamic_bitset<>(LayerSize)));
+				}
+				edgeCount[str][layerIndex] = 1;
+			}
+		}
+	}
+	in_stream.close();
+
+	vector<string> strs;
+	for(auto& p: edgeCount) {
+		dynamic_bitset<> tdb = p.second;
+		if (tdb.count() >= k) {
+			string edge = p.first;
+			strs.clear();
+			boost::split(strs,edge,boost::is_any_of("\t"));
+
+			int source = stoi(strs[0]);
+	        int dest = stoi(strs[1]);
+
+			for(int i = 0; i < tdb.size(); i++){
+				if(tdb[i] == 1) swappableEdges[i].push_back(make_pair(source, dest));
+			}
+		}
+	}
+
+	for(int j = 0; j < swapNumber; j++){
+		bool flag = true;
+		int edgeIndex1; int edgeIndex2;
+		int randomLayer = rand() % LayerSize;
+		while(swappableEdges[randomLayer].size() < 2) randomLayer = rand() % LayerSize;
+
+		while(flag){
+			edgeIndex1 = rand() % swappableEdges[randomLayer].size();
+			edgeIndex2 = rand() % swappableEdges[randomLayer].size();
+
+			while(edgeIndex1 == edgeIndex2 || 
+			swappableEdges[randomLayer][edgeIndex1].first == swappableEdges[randomLayer][edgeIndex2].first ||
+			swappableEdges[randomLayer][edgeIndex1].second == swappableEdges[randomLayer][edgeIndex2].second){
+				edgeIndex2 = rand() % swappableEdges[randomLayer].size();
+			}
+			flag = false;
+			int shortIndex = swappableEdges[randomLayer][edgeIndex1].first;
+			for(int i = 0; i < nodePairTracker[randomLayer][shortIndex].size(); i++){
+				if(nodePairTracker[randomLayer][shortIndex][i] == swappableEdges[randomLayer][edgeIndex2].second){
+					flag = true;
+				}
+			}
+			shortIndex = swappableEdges[randomLayer][edgeIndex2].first;
+			for(int i = 0; i < nodePairTracker[randomLayer][shortIndex].size(); i++){
+				if(nodePairTracker[randomLayer][shortIndex][i] == swappableEdges[randomLayer][edgeIndex1].second){
+					flag = true;
+				}
+			}
+		}
+
+		int node1 = swappableEdges[randomLayer][edgeIndex1].first;
+		int node2 = swappableEdges[randomLayer][edgeIndex1].second;
+		int node3 = swappableEdges[randomLayer][edgeIndex2].first;
+		int node4 = swappableEdges[randomLayer][edgeIndex2].second;
+
+		for(int i = 0; i < nodePairTracker[randomLayer][node1].size(); i++){
+			if(nodePairTracker[randomLayer][node1][i] == node2) nodePairTracker[randomLayer][node1][i] = node4;
+		}
+		for(int i = 0; i < nodePairTracker[randomLayer][node3].size(); i++){
+			if(nodePairTracker[randomLayer][node3][i] == node4) nodePairTracker[randomLayer][node3][i] = node2;
+		}
+
+		swappableEdges[randomLayer][edgeIndex1].second = node4;
+		swappableEdges[randomLayer][edgeIndex2].second = node2;
+	}
+
+	fileName = to_string(swapNumber)+"swapNetwork.txt";
+	ofstream swappedNetwork;
+	swappedNetwork.open(fileName);
+
+	for(auto& l: nodePairTracker){
+		for(int i = 0; i < l.size(); i++){
+			for(auto& p: l[i]){
+				swappedNetwork << i << "\t" << p << endl;
+			}
+		}
+		swappedNetwork << "-----------" << endl;
+	}
+	swappedNetwork.close();
+
+	//Clear to prevent any leakage
+	edgeCount.clear();
+	nodePairTracker.clear();
+	swappableEdges.clear();
+
+	return fileName;
+}
+
+string Graph::nonAggregateShuffleEdge(string networkName, int swapNumber){
+
+	srand(time(0));
+	string fileName = "";
+
+	vector<vector<vector<int> > > nodePairTracker(LayerSize, vector<vector<int>>(NodeSize));
+	unordered_map<string, dynamic_bitset<>> edgeCount;
+
+	//Keep track of swappable non-aggregate edges
+	vector<vector<pair<int, int>>> swappableEdges(LayerSize);
+
+	string str;
+	ifstream in_stream;
+	in_stream.open(networkName);
+
+	int layerIndex = 0;
+	while(!in_stream.eof()){
+		getline(in_stream, str);
+		if(str.size()>0){
+			if(str[0] == '-') layerIndex++;
+			else{
+				vector<string> tokenizer;
+				boost:split(tokenizer,str,boost::is_any_of("\t"));
+
+				nodePairTracker[layerIndex][stoi(tokenizer[0])].push_back(stoi(tokenizer[1]));
+
+				if(edgeCount.find(str) == edgeCount.end()){
+					edgeCount.insert(make_pair(str, dynamic_bitset<>(LayerSize)));
+				}
+				edgeCount[str][layerIndex] = 1;
+			}
+		}
+	}
+	in_stream.close();
+
+	vector<string> strs;
+	for(auto& p: edgeCount){
+		dynamic_bitset<> tdb = p.second;
+		if(tdb.count() < k && tdb.count() > 0){
+			string edge = p.first;
+			strs.clear();
+			boost::split(strs,edge,boost::is_any_of("\t"));
+
+			int source = stoi(strs[0]);
+			int dest = stoi(strs[1]);
+
+			for(int i = 0; i < tdb.size(); i++){
+				if(tdb[i] == 1) swappableEdges[i].push_back(make_pair(source, dest));
+			}
+		}
+	}
+
+	int badLayer = 0;
+	for(auto& p: swappableEdges){
+		if(p.size() < 2){
+			badLayer++;
+		}
+	}
+
+	if(badLayer == swappableEdges.size()) cout << "CANNOT PERFORM SWAPS" << endl;
+	else{
+		//The following below is the actual edge swapping procedure
+		//If it stalls forever, check that there are 2 unique edges to even be able to swap at the selected layer
+		for(int j = 0; j < swapNumber; j++){
+			bool flag = true;
+			int edgeIndex1;
+			int edgeIndex2;
+			int randomLayer = rand() % LayerSize;
+			while(swappableEdges[randomLayer].size() < 2) randomLayer = rand() % LayerSize;
+			
+			while(flag){
+				edgeIndex1 = rand() % swappableEdges[randomLayer].size();
+				edgeIndex2 = rand() % swappableEdges[randomLayer].size();
+
+				while(edgeIndex1 == edgeIndex2 || 
+				swappableEdges[randomLayer][edgeIndex1].first == swappableEdges[randomLayer][edgeIndex2].first ||
+				swappableEdges[randomLayer][edgeIndex1].second == swappableEdges[randomLayer][edgeIndex2].second){
+					edgeIndex2 = rand() % swappableEdges[randomLayer].size();
+				}
+				flag = false;
+				int shortIndex = swappableEdges[randomLayer][edgeIndex1].first;
+				for(int i = 0; i < nodePairTracker[randomLayer][shortIndex].size(); i++){
+					if(nodePairTracker[randomLayer][shortIndex][i] == swappableEdges[randomLayer][edgeIndex2].second){
+						flag = true;
+					}
+				}
+				shortIndex = swappableEdges[randomLayer][edgeIndex2].first;
+				for(int i = 0; i < nodePairTracker[randomLayer][shortIndex].size(); i++){
+					if(nodePairTracker[randomLayer][shortIndex][i] == swappableEdges[randomLayer][edgeIndex1].second){
+						flag = true;
+					}
+				}
+			}
+
+			int node1 = swappableEdges[randomLayer][edgeIndex1].first;
+			int node2 = swappableEdges[randomLayer][edgeIndex1].second;
+			int node3 = swappableEdges[randomLayer][edgeIndex2].first;
+			int node4 = swappableEdges[randomLayer][edgeIndex2].second;
+
+			for(int i = 0; i < nodePairTracker[randomLayer][node1].size(); i++){
+				if(nodePairTracker[randomLayer][node1][i] == node2) nodePairTracker[randomLayer][node1][i] = node4;
+			}
+			for(int i = 0; i < nodePairTracker[randomLayer][node3].size(); i++){
+				if(nodePairTracker[randomLayer][node3][i] == node4) nodePairTracker[randomLayer][node3][i] = node2;
+			}
+
+			swappableEdges[randomLayer][edgeIndex1].second = node4;
+			swappableEdges[randomLayer][edgeIndex2].second = node2;
+		}
+
+		fileName = to_string(swapNumber)+"swapNetwork.txt";
+		ofstream swappedNetwork;
+		swappedNetwork.open(fileName);
+
+		for(auto& l: nodePairTracker){
+			for(int i = 0; i < l.size(); i++){
+				for(auto& p: l[i]){
+					swappedNetwork << i << "\t" << p << endl;
+				}
+			}
+			swappedNetwork << "-----------" << endl;
+		}
+		swappedNetwork.close();
+	}
+	
+
+	//Clear to prevent any leakage
+	edgeCount.clear();
+	nodePairTracker.clear();
+	swappableEdges.clear();
+
+	return fileName;
+}
+
+string Graph::randomShuffleEdge(string networkName, int swapNumber){
+	
+	srand(time(0));
+
+	//vector<vector<int> > nodePairTracker(NodeSize);
+	vector<vector<vector<int> > > nodePairTracker(LayerSize, vector<vector<int>>(NodeSize));
+	unordered_map<string, dynamic_bitset<>> edgeCount;
+
+	string str;
+	ifstream in_stream;
+    in_stream.open(networkName);
+
+
+	int layerIndex = 0;
+	while(!in_stream.eof()) {
+		getline(in_stream, str);
+		if(str.size()>0){
+			if (str[0] == '-') {
+				layerIndex++;
+			}
+			else {
+				vector<string> tokenizer;
+				boost::split(tokenizer,str,boost::is_any_of("\t"));
+
+				nodePairTracker[layerIndex][stoi(tokenizer[0])].push_back(stoi(tokenizer[1]));
+
+				if (edgeCount.find(str) == edgeCount.end()) {
+					edgeCount.insert(make_pair(str, dynamic_bitset<>(LayerSize)));
+				}
+				edgeCount[str][layerIndex] = 1;
+			}
+		}
+	}
+	in_stream.close();
+	
+
+	//Make sure to add a user input of how many swaps to do in this for loop
+	for(int j= 0; j < swapNumber; j++){
+		bool flag = true;
+		vector<int> sourceNodes;
+		vector<int> destinationNodes;
+		int randomLayer = rand()%LayerSize;
+		
+		while(flag){
+			int firstS = rand()%NodeSize;
+			int firstD = -1;
+			if(nodePairTracker[randomLayer][firstS].size() > 0) firstD = nodePairTracker[randomLayer][firstS][0];
+
+			if(firstD == -1) continue;
+			else{
+				sourceNodes.push_back(firstS);
+				destinationNodes.push_back(firstD);
+				flag = false;
+			}
+		}
+
+		flag = true;
+		while(flag){
+			int secondS = rand()%NodeSize;
+			while(secondS == sourceNodes[0] || secondS == destinationNodes[0]) secondS = rand()%NodeSize;
+			bool conflict = false;
+			if(nodePairTracker[randomLayer][secondS].size() > 0){
+				for(int i = 0; i < nodePairTracker[randomLayer][secondS].size(); i++){
+					if(nodePairTracker[randomLayer][secondS][i] == destinationNodes[0]) conflict = true;
+				}
+				if(!conflict){
+					int randomIndex = rand()%nodePairTracker[randomLayer][secondS].size();
+					sourceNodes.push_back(secondS);
+					destinationNodes.push_back(nodePairTracker[randomLayer][secondS][randomIndex]);
+					flag = false;
+				}
+			}
+		}
+
+
+		for(int i = 0; i < nodePairTracker[randomLayer][sourceNodes[0]].size(); i++){
+			if(nodePairTracker[randomLayer][sourceNodes[0]][i] == destinationNodes[0]) nodePairTracker[randomLayer][sourceNodes[0]][i] = destinationNodes[1];
+		}
+		for(int i = 0; i < nodePairTracker[randomLayer][sourceNodes[1]].size(); i++){
+			if(nodePairTracker[randomLayer][sourceNodes[1]][i] == destinationNodes[1]) nodePairTracker[randomLayer][sourceNodes[1]][i] = destinationNodes[0];
+		}
+	}
+
+	string fileName = to_string(swapNumber)+"swapNetwork.txt";
+	ofstream swappedNetwork;
+	swappedNetwork.open(fileName);
+
+	for(auto& l: nodePairTracker){
+		for(int i = 0; i < l.size(); i++){
+			for(auto& p: l[i]){
+				swappedNetwork << i << "\t" << p << endl;
+			}
+		}
+		swappedNetwork << "-----------" << endl;
+	}
+
+	/*for(int i = 0; i < nodePairTracker.size(); i++){
+		for(auto& p: nodePairTracker[randomLayer][i]){
+			swappedNetwork << i << "\t" << p << endl;
+		}
+	}
+	swappedNetwork<<"-----------"<<endl;*/
+	swappedNetwork.close();
+
+	//Clear here to prevent leakage
+    edgeCount.clear();
+	nodePairTracker.clear();
+
+	return fileName;
+}
 
 void Graph::readNetworkFile(string networkName){
 	string str;
